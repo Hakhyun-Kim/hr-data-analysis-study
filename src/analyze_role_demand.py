@@ -89,6 +89,20 @@ GAME_SERVER = re.compile(
     r"\bserver\b|\bbackend\b|\bback[- ]end\b|\binfrastructure\b|\bSRE\b|\bDevOps\b|"
     r"\bdistributed\b|\bdatabase\b|\bnetcode\b", re.IGNORECASE)
 
+# 제목만 보면 77%가 판정 불가다. JD **본문**의 엔진·기술 스택으로 넓혀 잡는다.
+# 대신 정밀도가 떨어진다 — 회사가 Unreal 을 쓰면 QA·빌드 직무 본문에도 엔진명이 적힌다.
+# 따라서 '클라이언트 직무'가 아니라 '클라이언트 스택을 다루는 공고'로 읽어야 한다.
+BODY_ENGINE = re.compile(
+    r"\bUnity\b|\bUnreal\b|\bUE[45]\b|\bGodot\b|\bCryEngine\b|\bBevy\b|\bFrostbite\b",
+    re.IGNORECASE)
+BODY_CLIENT = re.compile(
+    r"\bC\+\+\b|\bC#\b|\bHLSL\b|\bGLSL\b|\bshader\b|\bDirectX\b|\bVulkan\b|\bOpenGL\b|"
+    r"\bgameplay\b|\brendering\b|\banimation\b", re.IGNORECASE)
+BODY_SERVER = re.compile(
+    r"\bKubernetes\b|\bAWS\b|\bGCP\b|\bmicroservice\b|\bgRPC\b|\bPostgres\w*\b|"
+    r"\bMySQL\b|\bRedis\b|\bKafka\b|\bbackend\b|\bserver[- ]side\b|\bdistributed system",
+    re.IGNORECASE)
+
 
 def compile_all(spec: dict) -> dict:
     return {k: re.compile(v, re.IGNORECASE) for k, v in spec.items()}
@@ -197,27 +211,44 @@ def game_client_server() -> None:
         return
 
     with open(path, "r", encoding="utf-8") as f:
-        titles = [(r["unstructured"].get("position") or "") for r in json.load(f)]
-    n = len(titles)
-    client = sum(1 for t in titles if GAME_CLIENT.search(t) and not GAME_SERVER.search(t))
-    server = sum(1 for t in titles if GAME_SERVER.search(t) and not GAME_CLIENT.search(t))
-    both = sum(1 for t in titles if GAME_CLIENT.search(t) and GAME_SERVER.search(t))
-    unknown = n - client - server - both
+        recs = json.load(f)
+    titles = [(r["unstructured"].get("position") or "") for r in recs]
+    bodies = [(r["unstructured"].get("content") or "") for r in recs]
+    n = len(recs)
 
-    print(f"\n  게임사 개발 공고 {n:,}건")
-    for label, cnt in (("클라이언트", client), ("서버", server),
-                       ("둘 다", both), ("판정 불가", unknown)):
-        print(f"    {pad(label, 12)}{cnt:>5,}건 {cnt / n:>6.1%}")
+    def split(texts, client_pat, server_pat):
+        c = sum(1 for t in texts if client_pat.search(t) and not server_pat.search(t))
+        s = sum(1 for t in texts if server_pat.search(t) and not client_pat.search(t))
+        b = sum(1 for t in texts if client_pat.search(t) and server_pat.search(t))
+        return c, s, b, n - c - s - b
 
-    print(f"\n  · 판정 가능한 것은 {(client + server + both) / n:.0%} 뿐입니다."
-          f" 나머지 {unknown / n:.0%}는 'Software Engineer',"
-          "\n    'Senior Data Scientist' 처럼 계층이 안 적힌 제목입니다.")
-    if client and server:
-        print(f"  · 판정된 것만 보면 클라이언트:서버 = {client / server:.1f} : 1 입니다.")
-    print("  · 다만 이건 **현재 열린 공고의 단면**입니다. 게임사 보드에는 마감 공고가"
-          "\n    남지 않아 '클라이언트가 줄었다'는 시계열 검증을 할 수 없습니다.")
-    print("  · HN 쪽 게임 언급은 연 16~92건이라 여기서 갈라도 한 자릿수가 됩니다.")
-    print("\n  ➔ 현재 수집 가능한 소스로는 '게임 클라이언트 수요 감소'를 확인할 수 없습니다.")
+    print(f"\n  게임사 개발 공고 {n:,}건\n")
+    print(pad("기준", 22) + f"{'클라이언트':>11}{'서버':>9}{'둘 다':>9}{'판정 불가':>11}")
+    print("  " + "-" * 60)
+
+    rows = [
+        ("직무명", *split(titles, GAME_CLIENT, GAME_SERVER)),
+        ("JD 본문(엔진·스택)", *split(
+            bodies, re.compile(BODY_ENGINE.pattern + "|" + BODY_CLIENT.pattern, re.I),
+            BODY_SERVER)),
+    ]
+    for label, c, s, b, u in rows:
+        print(pad("  " + label, 22)
+              + f"{c:>7,}건{s:>7,}건{b:>7,}건{u:>9,}건"
+              + f"   (불가 {u / n:.0%})")
+
+    engine = sum(1 for t in bodies if BODY_ENGINE.search(t))
+    print(f"\n  · 엔진명(Unity/Unreal/Godot 등)만 따로 세면 {engine:,}건 "
+          f"({engine / n:.1%})이 본문에 언급합니다.")
+    print("  · 본문으로 넓히면 판정 불가가 77% → 28%로 줄지만, **정밀도가 떨어집니다.**"
+          "\n    회사가 Unreal 을 쓰면 QA·빌드·SDK 직무 본문에도 엔진명이 적히기 때문입니다."
+          "\n    '클라이언트 직무'가 아니라 '클라이언트 스택을 다루는 공고'로 읽어야 합니다.")
+    print("  · 두 기준의 클라이언트:서버 비가 서로 다릅니다. 어느 쪽도 단독으로 인용할 수 없습니다.")
+
+    print("\n  ➔ 구성은 볼 수 있지만 **추이는 여전히 못 봅니다.**"
+          "\n    게임사 보드에는 마감 공고가 남지 않아 단면뿐이고,"
+          "\n    HN 쪽 엔진 언급은 연 16~67건(비중 0.4~0.9%)이라 추세를 논할 표본이 아닙니다.")
+    print("  ➔ '게임 클라이언트 수요 감소'는 현재 수집 가능한 소스로 확인할 수 없습니다.")
 
 
 def main() -> None:
