@@ -395,6 +395,84 @@ def fig_entry_comparison() -> None:
     save(fig, "entry_level_comparison.png")
 
 
+# ------------------------------------------------------------------ 8
+# 직군별 언급 비중은 월 단위로 보면 표본 변동이 커서 선이 톱니처럼 튄다.
+# 3개월 이동평균으로 추세만 남긴다(원계열은 CSV 에 그대로 있다).
+ROLE_LINES = {
+    "프론트엔드": "#E4572E",
+    "백엔드": "#2BA84A",
+    "풀스택": "#4C6FFF",
+    "인프라/SRE": "#8E6BBF",
+    "모바일": "#B0782A",
+}
+ROLL = 3
+
+
+def fig_role_demand() -> None:
+    path = os.path.join(DATA_DIR, "role_demand_monthly.csv")
+    if not os.path.exists(path):
+        print("  [건너뜀] role_demand_monthly.csv 없음 → analyze_role_demand.py 먼저 실행")
+        return
+
+    df = pd.read_csv(path, encoding="utf-8-sig").sort_values("기준월")
+    df["기준월"] = df["기준월"].astype(str)
+    x = range(len(df))
+
+    fig, ax = plt.subplots(figsize=(11.5, 5.4))
+    ends = []
+    for role, color in ROLE_LINES.items():
+        col = f"{role}_비중"
+        if col not in df.columns:
+            continue
+        series = (df[col] * 100).rolling(ROLL, min_periods=1).mean()
+        ax.plot(x, series, color=color, linewidth=2.2, label=role)
+        ends.append([series.iloc[-1], role, color])
+
+    # 선이 5개라 범례만으로는 눈이 못 따라간다. 끝점에 직접 적되,
+    # 값이 겹치는 선(인프라/모바일처럼 같은 %)은 라벨이 포개지므로 세로로 벌린다.
+    ends.sort()
+    for i in range(1, len(ends)):
+        gap = ends[i][0] - ends[i - 1][0]
+        if gap < 1.2:
+            ends[i][0] = ends[i - 1][0] + 1.2
+    for y_label, role, color in ends:
+        actual = (df[f"{role}_비중"] * 100).rolling(ROLL, min_periods=1).mean().iloc[-1]
+        ax.annotate(f"{role} {actual:.0f}%", xy=(len(df) - 1, y_label),
+                    xytext=(6, -3), textcoords="offset points", fontsize=9, color=color)
+
+    # 프론트엔드는 고점 대비 반토막인데 백엔드는 버텼다 — 이 그림의 요지라 짚어준다.
+    fr = (df["프론트엔드_비중"] * 100).rolling(ROLL, min_periods=1).mean()
+    peak = int(fr.idxmax() - fr.index[0])
+    ax.scatter([peak], [fr.iloc[peak]], color=ROLE_LINES["프론트엔드"], s=45, zorder=5)
+    ax.annotate(f"프론트엔드 고점 {fr.iloc[peak]:.0f}%\n"
+                f"({df['기준월'].iloc[peak][:4]}.{df['기준월'].iloc[peak][4:]})"
+                f" → 최근 {fr.iloc[-1]:.0f}%",
+                xy=(peak, fr.iloc[peak]), xytext=(-14, 34),
+                textcoords="offset points", fontsize=8.5,
+                color=ROLE_LINES["프론트엔드"],
+                arrowprops=dict(arrowstyle="-", color=ROLE_LINES["프론트엔드"],
+                                linewidth=0.8, shrinkB=4))
+
+    ax.set_ylabel("해당 직군 언급 공고 비율 (%)")
+    ax.set_title("직군별 채용 수요 — Hacker News 채용글 "
+                 f"({df['공고수'].sum():,}건 / {len(df)}개월, {ROLL}개월 이동평균)",
+                 fontsize=12, pad=12)
+    # 범례는 두지 않는다. 끝점 라벨이 이미 선을 식별하고,
+    # 범례를 상단에 두면 고점 주석과 겹친다.
+    ax.grid(color=PALETTE["grid"], linewidth=0.7)
+    ax.set_axisbelow(True)
+    ax.set_xlim(-1, len(df) + 9)   # 끝점 라벨이 잘리지 않도록 오른쪽 여백
+    ax.set_ylim(top=ax.get_ylim()[1] * 1.14)  # 고점 주석이 선 위에 앉을 자리
+
+    step = max(1, len(df) // 14)
+    ax.set_xticks(list(x)[::step])
+    ax.set_xticklabels([m[:4] + "." + m[4:] for m in df["기준월"]][::step],
+                       rotation=45, fontsize=8)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    save(fig, "role_demand_trend.png")
+
+
 def main() -> None:
     setup_font()
     print("시각화 생성 시작\n")
@@ -407,6 +485,7 @@ def main() -> None:
     fig_wordcloud(jobs)
     fig_global_trend()
     fig_entry_comparison()
+    fig_role_demand()
     print(f"\n[완료] docs/figures/ 에 저장")
 
 

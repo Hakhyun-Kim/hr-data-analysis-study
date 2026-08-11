@@ -116,17 +116,35 @@ def main() -> None:
         raise SystemExit("\n[중단] 대상 스레드 0건\n")
     print(f"대상 스레드 {len(threads)}개 ({threads[0]['ym']} ~ {threads[-1]['ym']})\n")
 
-    rows, raw_posts, total_posts = [], {}, 0
+    # 한 달에 스레드가 두 개 열리는 경우가 있다(2020-03 실측: story 22465476 + 22665398).
+    # 월을 키로 덮어쓰면 원본이 조용히 사라지고, 스레드마다 행을 만들면 그 달이 두 번 세어진다.
+    # 월 단위로 합치고 story_id 는 목록으로 남긴다.
+    raw_posts: dict[str, list[str]] = {}
+    story_ids: dict[str, list[str]] = {}
+    total_posts = 0
     for i, thread in enumerate(threads, 1):
         posts = fetch_posts(session, thread["id"])
         if not posts:
             print(f"  [경고] {thread['ym']} 공고 0건 (story {thread['id']})")
             continue
 
-        raw_posts[thread["ym"]] = posts
+        ym = thread["ym"]
+        if ym in raw_posts:
+            print(f"  [주의] {ym} 스레드 2개 — 합산합니다 (story {thread['id']})")
+        raw_posts.setdefault(ym, []).extend(posts)
+        story_ids.setdefault(ym, []).append(str(thread["id"]))
         total_posts += len(posts)
 
-        row = {"기준월": thread["ym"], "story_id": thread["id"], "공고수": len(posts)}
+        if i % 12 == 0:
+            print(f"  {i}/{len(threads)} 스레드 처리 (누적 공고 {total_posts:,}건)")
+        time.sleep(0.25)
+
+    if not raw_posts:
+        raise SystemExit("\n[중단] 수집된 공고가 0건\n")
+
+    rows = []
+    for ym, posts in sorted(raw_posts.items()):
+        row = {"기준월": ym, "story_id": "|".join(story_ids[ym]), "공고수": len(posts)}
         for keyword in ALL_STACK:
             row[keyword] = sum(1 for p in posts if mentions(p, keyword))
         row["AI스택_1개이상"] = sum(1 for p in posts
@@ -134,13 +152,6 @@ def main() -> None:
         row["전통스택_1개이상"] = sum(1 for p in posts
                                  if any(mentions(p, k) for k in CLASSIC_STACK))
         rows.append(row)
-
-        if i % 12 == 0:
-            print(f"  {i}/{len(threads)} 스레드 처리 (누적 공고 {total_posts:,}건)")
-        time.sleep(0.25)
-
-    if not rows:
-        raise SystemExit("\n[중단] 수집된 공고가 0건\n")
 
     raw_path = save_raw("hn_hiring", raw_posts)
     df = pd.DataFrame(rows).sort_values("기준월")
