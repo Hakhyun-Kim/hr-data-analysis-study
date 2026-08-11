@@ -473,6 +473,42 @@ def fig_role_demand() -> None:
     save(fig, "role_demand_trend.png")
 
 
+# ------------------------------------------------------------------ 9
+def fig_domestic_roles() -> None:
+    path = os.path.join(DATA_DIR, "domestic_role_groups.csv")
+    if not os.path.exists(path):
+        print("  [건너뜀] domestic_role_groups.csv 없음 → collect_domestic_roles.py 먼저 실행")
+        return
+
+    df = pd.read_csv(path, encoding="utf-8-sig").sort_values("공고수")
+    # 해외 그래프(role_demand_trend)와 같은 색을 써서 같은 직군임을 눈으로 잇는다.
+    color_of = {"프론트엔드": "#E4572E", "백엔드/서버": "#2BA84A", "앱(모바일)": "#B0782A",
+                "인프라/SRE": "#8E6BBF", "ML/AI": "#4C6FFF", "데이터": "#3AA6A0",
+                "게임 클라이언트": "#C2456B", "게임 서버": "#8A6D3B"}
+    colors = [color_of.get(n, "#999999") for n in df["직군군"]]
+
+    fig, ax = plt.subplots(figsize=(9.5, 4.8))
+    bars = ax.barh(df["직군군"], df["공고수"], color=colors, height=0.62)
+    for bar, v in zip(bars, df["공고수"]):
+        ax.text(v + df["공고수"].max() * 0.012, bar.get_y() + bar.get_height() / 2,
+                f"{v:,}", va="center", fontsize=9, color="#444")
+
+    ax.set_xlabel("현재 게시 중인 공고 수 (직군 태그 기준, 공고 중복 제거)")
+    ax.set_title("국내 개발 직군별 채용 공고 — 현재 게시분 단면", fontsize=12, pad=12)
+    ax.set_xlim(0, df["공고수"].max() * 1.13)
+    ax.grid(axis="x", color=PALETTE["grid"], linewidth=0.7)
+    ax.set_axisbelow(True)
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.tick_params(axis="y", length=0)
+    # 이 그림은 시계열이 아니라는 것을 그림 안에 적어둔다. 떼어서 인용될 때를 대비한다.
+    fig.text(0.01, -0.02,
+             "※ 과거 공고를 받을 수 없어 추이가 아닌 단면입니다. "
+             "해외 시계열(role_demand_trend)과 측정 단위가 다릅니다.",
+             fontsize=8, color="#777")
+    save(fig, "domestic_role_counts.png")
+
+
 def main() -> None:
     setup_font()
     print("시각화 생성 시작\n")
@@ -486,6 +522,7 @@ def main() -> None:
     fig_global_trend()
     fig_entry_comparison()
     fig_role_demand()
+    fig_domestic_roles()
     print(f"\n[완료] docs/figures/ 에 저장")
 
 

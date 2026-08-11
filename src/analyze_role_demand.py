@@ -251,6 +251,56 @@ def game_client_server() -> None:
     print("  ➔ '게임 클라이언트 수요 감소'는 현재 수집 가능한 소스로 확인할 수 없습니다.")
 
 
+def domestic_roles(counts: pd.DataFrame, roles: list) -> None:
+    """국내 직군별 공고 수와 해외 구성을 나란히 놓는다.
+
+    두 값은 **측정 단위가 다르다.** 국내는 플랫폼 직군 태그가 붙은 공고 수(전수),
+    해외는 공고 본문에 그 직군이 언급된 비중(추정)이다. 절대 비중을 맞대면 안 되고,
+    같은 기준 안에서의 **비(比)** 만 비교한다.
+    """
+    path = os.path.join(DATA_DIR, "domestic_role_groups.csv")
+    print("\n" + "=" * 78)
+    print("[6] 국내 직군별 공고 수 — 해외 구성과 대조")
+    print("=" * 78)
+    if not os.path.exists(path):
+        print("  미수집 — python src/collect_domestic_roles.py")
+        return
+
+    dom = pd.read_csv(path, encoding="utf-8-sig").set_index("직군군")
+    total = int(dom["공고수"].sum())
+    print(f"\n  국내 (현재 게시분 단면, 고유 공고 기준)")
+    top = dom["공고수"].max()
+    for name, r in dom.iterrows():
+        bar = "█" * round(r["공고수"] / top * 40)
+        print(f"    {pad(name, 16)}{r['공고수']:>6,}  {bar}")
+    print(f"    {pad('(합계 참고)', 16)}{total:>6,}  ※ 직군 간 공고가 겹쳐 실제 총계는 더 적습니다")
+
+    # 비교는 '백엔드 대비 몇 배' 로만 한다. 단위가 다른 두 수치를 직접 빼지 않기 위해서다.
+    last_year = counts.index[-1]
+    hn = counts.loc[last_year]
+    def ratio(dom_key, hn_key):
+        d = dom["공고수"].get(dom_key)
+        h = hn.get(hn_key)
+        if not d or not h or not dom["공고수"].get("백엔드/서버") or not hn.get("백엔드"):
+            return None, None
+        return d / dom["공고수"]["백엔드/서버"], h / hn["백엔드"]
+
+    print(f"\n  백엔드 대비 비율 — 국내 vs 해외({last_year})")
+    print("  " + pad("직군", 18) + f"{'국내':>10}{'해외':>10}")
+    print("  " + "-" * 38)
+    for dom_key, hn_key in (("프론트엔드", "프론트엔드"), ("앱(모바일)", "모바일"),
+                            ("인프라/SRE", "인프라/SRE"), ("ML/AI", "ML/AI")):
+        d, h = ratio(dom_key, hn_key)
+        if d is None:
+            continue
+        print("  " + pad(dom_key, 18) + f"{d:>9.2f}x{h:>9.2f}x")
+
+    print("\n  · 국내에서도 백엔드가 프론트엔드보다 많습니다. 방향은 해외와 같습니다.")
+    print("  · 다만 두 수치는 **단위가 다릅니다.** 국내는 직군 태그가 붙은 공고 수(전수),")
+    print("    해외는 본문에 그 직군이 언급된 비중(추정)입니다. 비율끼리만 비교했습니다.")
+    print("  · 국내도 **단면입니다.** 과거 공고를 받을 수 없어 '줄었다'는 여전히 못 봅니다.")
+
+
 def main() -> None:
     print("=" * 78)
     print("직군별 수요 변화 — HN 채용글 2020~2026")
@@ -330,6 +380,7 @@ def main() -> None:
     print("\n  ※ 한 공고가 여러 직군에 잡힐 수 있어 합계는 100%를 넘습니다.")
 
     game_client_server()
+    domestic_roles(strict, roles)
 
     print("\n" + "-" * 78)
     print("[해석 주의]")
