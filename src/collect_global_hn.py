@@ -31,6 +31,12 @@ from provenance import DATA_DIR, record, save_raw  # noqa: E402
 SEARCH_URL = "https://hn.algolia.com/api/v1/search"
 TIMEOUT = 40
 
+# 정기 월간 스레드는 제목에 '(March 2020)' 처럼 월-연도가 붙는다.
+# 이 형식을 요구해 임시 스레드를 걸러낸다.
+MONTHLY_TITLE = re.compile(
+    r"\((January|February|March|April|May|June|July|August|September|October|"
+    r"November|December)\s+\d{4}\)", re.IGNORECASE)
+
 # 국내 분석과 동일한 스택 사전을 쓰되, 해외에서 통용되는 표기를 보강한다.
 AI_STACK = ["LLM", "RAG", "Agent", "LangChain", "LlamaIndex", "Fine-tuning",
             "Vector DB", "embedding", "prompt", "GenAI", "OpenAI", "PyTorch"]
@@ -68,6 +74,12 @@ def fetch_threads(session: requests.Session, start: str) -> list[dict]:
             title = hit.get("title") or ""
             if "who is hiring" not in title.lower():
                 continue  # 'Who wants to be hired', 'Freelancer' 스레드 제외
+            if not MONTHLY_TITLE.search(title):
+                # 정기 스레드가 아닌 특별 스레드를 거른다.
+                # 실측: 2020-03-23 'Ask HN: Who is hiring right now?' (코로나 시기 임시 스레드).
+                # 같은 달에 정기 스레드가 따로 있어, 이걸 합치면 그 달만 두 배로 부푼다.
+                print(f"  [제외] 정기 스레드 아님 — {title}")
+                continue
             ym = (hit.get("created_at") or "")[:7].replace("-", "")
             if ym and ym >= start:
                 threads.append({"id": hit["objectID"], "ym": ym, "title": title,
